@@ -4,33 +4,12 @@
 #include <cmath>
 #include <vector>
 #include <queue>
+#include <list>
 
 using namespace std;
 
 const int INF = 1e9;
 const long long INFLL = (long long)1e18;
-
-class Vertex {
-private:
-	int dist;
-	int edges_head;
-	long long excess;
-	int label;
-public:
-	Vertex() : dist(INF), edges_head(0) {}
-
-	int getDist();
-	int getHead();
-	void setDist(int x);
-	void increaseHead();
-	void initHead();
-
-	long long getExcess();
-	int getLabel();
-	void setExcess(long long x);
-	void setLabel(int x);
-	void increaseExcess(long long x);
-};
 
 class Edge {
 protected:
@@ -42,6 +21,28 @@ public:
 	int getTo();
 	int getId();
 	int getFrom();
+};
+
+class Vertex {
+private:
+	int dist;
+	list<Edge*>::iterator edges_head;
+	long long excess;
+	int label;
+public:
+	Vertex() : dist(INF), edges_head(NULL) {}
+
+	int getDist();
+	list<Edge*>::iterator getHead();
+	void setDist(int x);
+	void increaseHead();
+	void initHead(list<Edge*>::iterator i);
+
+	long long getExcess();
+	int getLabel();
+	void setExcess(long long x);
+	void setLabel(int x);
+	void increaseExcess(long long x);
 };
 
 class FlowEdge : public Edge {
@@ -62,18 +63,27 @@ public:
 	int getFlow();
 };
 
-class FlowGraph {
-private:
+class Graph {
+protected:
 	int EdgeCount;
-	vector<vector<FlowEdge*> > E;
+	vector<list<Edge*> > E;
 	vector<Vertex*> V;
 
 public:
+	Graph() {}
+	Graph(vector<list<Edge*> >& FlowE, const vector<Vertex*>& FlowV, int minG);
+	int getSize();
+	void bfs(int S);
+};
+
+class FlowGraph : public Graph {
+public:
 	FlowGraph() {}
 
-	int getSize();
+	int getMaxCap();
 	void get();
-
+	long long pushFlow(int S, long long flow, int minG, int T);
+	long long Dinic(int S, int T);
 	void printFlow();
 
 	void push(FlowEdge* e);
@@ -84,23 +94,11 @@ public:
 	long long RelabelToFront(int S, int T);
 };
 
-class Graph {
-private:
-	int EdgeCount;
-	vector<vector<Edge*> > E;
-	vector<Vertex*> V;
-
-public:
-	Graph() {}
-	Graph(const vector<vector<FlowEdge*> >& FlowE, const vector<Vertex*>& FlowV, int minG);
-	int getSize();
-};
-
 int Vertex::getDist() {
 	return dist;
 }
 
-int Vertex::getHead() {
+list<Edge*>::iterator Vertex::getHead() {
 	return edges_head;
 }
 
@@ -112,8 +110,8 @@ void Vertex::increaseHead() {
 	edges_head++;
 }
 
-void Vertex::initHead() {
-	edges_head = 0;
+void Vertex::initHead(list<Edge*>::iterator i) {
+	edges_head = i;
 }
 
 long long Vertex::getExcess() {
@@ -169,15 +167,38 @@ int Graph::getSize() {
 	return E.size();
 }
 
-Graph::Graph(const vector<vector<FlowEdge*> >& FlowE, const vector<Vertex*>& FlowV, int minG) {
+void Graph::bfs(int S) {
+	int n = E.size();
+	for (int i = 0; i < n; i++) {
+		V[i]->setDist(INF);
+	}
+	V[S]->setDist(0);
+	queue<int> q;
+	q.push(S);
+
+	while (q.size() > 0) {
+		int cur = q.front();
+		q.pop();
+
+		for (list<Edge*>::iterator i = E[cur].begin(); i != E[cur].end(); i++) {
+			int y = (*i)->getTo();
+			if (V[y]->getDist() == INF) {
+				V[y]->setDist(V[cur]->getDist() + 1);
+				q.push(y);
+			}
+		}
+	}
+}
+
+Graph::Graph(vector<list<Edge*> >& FlowE, const vector<Vertex*>& FlowV, int minG) {
 	E.resize(FlowE.size());
 	EdgeCount = 0;
 	for (int i = 0; i < (int)FlowE.size(); i++) {
 		E[i].resize(0);
-		for (int j = 0; j < (int)FlowE[i].size(); j++) {
-			if (FlowE[i][j]->getG() >= minG) {
-				int y = FlowE[i][j]->getTo();
-				E[i].push_back(new Edge(i, y, FlowE[i][j]->getId()));
+		for (list<Edge*>::iterator j = FlowE[i].begin(); j != FlowE[i].end(); j++) {
+			if (((FlowEdge*) *j)->getG() >= minG) {
+				int y = (*j)->getTo();
+				E[i].push_back(new Edge(i, y, (*j)->getId()));
 				EdgeCount++;
 			}
 		}
@@ -186,8 +207,14 @@ Graph::Graph(const vector<vector<FlowEdge*> >& FlowE, const vector<Vertex*>& Flo
 	V = FlowV;
 }
 
-int FlowGraph::getSize() {
-	return E.size();
+int FlowGraph::getMaxCap() {
+	int ans = 0;
+	for (int i = 0; i < (int)E.size(); i++) {
+		for (list<Edge*>::iterator j = E[i].begin(); j != E[i].end(); j++) {
+			ans = max(ans, ((FlowEdge*) *j)->getFlow() + ((FlowEdge*) *j)->getG());
+		}
+	}
+	return ans;
 }
 
 void FlowGraph::get() {
@@ -207,9 +234,49 @@ void FlowGraph::get() {
 
 
 		E[a].push_back(new FlowEdge(a, b, i + 1, 0, c, NULL));
-		E[b].push_back(new FlowEdge(b, a, 0, 0, 0, E[a][ E[a].size() - 1 ]));
-		E[a][ E[a].size() - 1 ]->setRev(E[b][ E[b].size() - 1 ]);
+		E[b].push_back(new FlowEdge(b, a, 0, 0, 0, (FlowEdge*) E[a].back()));
+		((FlowEdge*) E[a].back())->setRev((FlowEdge*) E[b].back());
 	}
+}
+
+long long FlowGraph::pushFlow(int x, long long flow, int minG, int T) {
+	if (x == T) {
+		return flow;
+	}
+	long long oldflow = flow;
+
+	for (list<Edge*>::iterator i = V[x]->getHead(); i != E[x].end(); i++) {
+		int y = (*i)->getTo();
+		if (V[y]->getDist() == V[x]->getDist() + 1 && ((FlowEdge*) *i)->getG() >= minG && flow > 0) {
+			long long cur = pushFlow(y, min(flow, (long long)((FlowEdge*) *i)->getG()), minG, T);
+			flow -= cur;
+			if (flow != 0) {
+				V[x]->increaseHead();
+			}
+			((FlowEdge*) *i)->push(cur);
+		}
+	}
+
+	return (oldflow - flow);
+}
+
+long long FlowGraph::Dinic(int S, int T) {
+	long long flow = 0;
+	for (int minG = this->getMaxCap(); minG > 0; minG /= 2) {
+		while (true) {
+			Graph G(E, V, minG);
+			G.bfs(S);
+			for (int i = 0; i < (int)V.size(); i++) {
+				V[i]->initHead(E[i].begin());
+			}
+			long long cur = pushFlow(S, INFLL, minG, T);
+			if (cur == 0) {
+				break;
+			}
+			flow += cur;
+		}
+	}
+	return flow;
 }
 
 void FlowGraph::push(FlowEdge* e) {
@@ -223,9 +290,9 @@ void FlowGraph::push(FlowEdge* e) {
 
 void FlowGraph::relabel(int a) {
 	int ans = INF;
-	for (int i = 0; i < (int)E[a].size(); i++) {
-		if (E[a][i]->getG() > 0) {
-			ans = min(ans, V[ E[a][i]->getTo() ]->getLabel() + 1);
+	for (list<Edge*>::iterator i = E[a].begin(); i != E[a].end(); i++) {
+		if (((FlowEdge*) *i)->getG() > 0) {
+			ans = min(ans, V[ (*i)->getTo() ]->getLabel() + 1);
 		}
 	}
 	V[a]->setLabel(ans);
@@ -236,25 +303,25 @@ void FlowGraph::initPreflow(int S) {
 		V[i]->setExcess(0);
 		V[i]->setLabel(0);
 	}
-	for (int j = 0; j < (int)E[S].size(); j++) {
-		if (E[S][j]->getTo() == S) {
+	for (list<Edge*>::iterator i = E[S].begin(); i != E[S].end(); i++) {
+		if ((*i)->getTo() == S) {
 			continue;
 		}
-		V[ E[S][j]->getTo() ]->increaseExcess( E[S][j]->getG() );
-		V[S]->increaseExcess(-E[S][j]->getG());
-		E[S][j]->push(E[S][j]->getG());
+		V[ (*i)->getTo() ]->increaseExcess( ((FlowEdge*) *i)->getG() );
+		V[S]->increaseExcess(-((FlowEdge*) *i)->getG());
+		((FlowEdge*) *i)->push(((FlowEdge*) *i)->getG());
 	}
 	V[S]->setLabel(V.size());
 }
 
 void FlowGraph::discharge(int u, int S, int T, queue<int>& q, vector<int>& used) {
 	while (V[u]->getExcess() > 0) {
-		if (V[u]->getHead() == (int)E[u].size()) {
+		if (V[u]->getHead() == E[u].end()) {
 			relabel(u);
-			V[u]->initHead();
+			V[u]->initHead(E[u].begin());
 		}
 		else {
-			FlowEdge* e = E[u][ V[u]->getHead() ];
+			FlowEdge* e = (FlowEdge*) *V[u]->getHead();
 			if (e->getG() > 0 && V[u]->getLabel() == V[e->getTo()]->getLabel() + 1) {
 				push(e);
 				if (used[e->getTo()] == 0 && V[e->getTo()]->getExcess() > 0 && e->getTo() != S && e->getTo() != T) {
@@ -274,12 +341,14 @@ long long FlowGraph::RelabelToFront(int S, int T) {
 	vector<int> used(V.size());
 	queue<int> q;
 	for (int i = 0; i < (int)V.size(); i++) {
-		V[i]->initHead();
+		V[i]->initHead(E[i].begin());
 		if (i != S && i != T && V[i]->getExcess() > 0) {
 			q.push(i);
 			used[i] = 1;
 		}
 	}
+
+
 	while (q.size() > 0) {
 		int cur = q.front();
 		q.pop();
@@ -294,10 +363,10 @@ void FlowGraph::printFlow() {
 	vector<int> ans;
 	ans.resize(EdgeCount);
 	for (int i = 0; i < (int)E.size(); i++) {
-		for (int j = 0; j < (int)E[i].size(); j++) {
-			if (E[i][j]->getId() != 0) {
-				int id = E[i][j]->getId();
-				ans[id - 1] = E[i][j]->getFlow();
+		for (list<Edge*>::iterator j = E[i].begin(); j != E[i].end(); j++) {
+			if ((*j)->getId() != 0) {
+				int id = (*j)->getId();
+				ans[id - 1] = ((FlowEdge*) *j)->getFlow();
 			}
 		}
 	}
